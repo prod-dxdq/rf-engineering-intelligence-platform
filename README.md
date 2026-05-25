@@ -42,6 +42,7 @@ Terminal 1 (backend):
 
 ```bash
 cd backend
+.venv\Scripts\Activate.ps1
 .venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

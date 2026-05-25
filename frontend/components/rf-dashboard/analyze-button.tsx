@@ -5,9 +5,16 @@ import { motion } from "framer-motion";
 interface AnalyzeButtonProps {
   onClick: () => void;
   isAnalyzing: boolean;
+  idleLabel?: string;
+  busyLabel?: string;
 }
 
-export function AnalyzeButton({ onClick, isAnalyzing }: AnalyzeButtonProps) {
+export function AnalyzeButton({
+  onClick,
+  isAnalyzing,
+  idleLabel = "Analyze Receiver Chain",
+  busyLabel = "Analyzing...",
+}: AnalyzeButtonProps) {
   return (
     <motion.button
       onClick={onClick}
@@ -76,7 +83,7 @@ export function AnalyzeButton({ onClick, isAnalyzing }: AnalyzeButtonProps) {
           )}
         </motion.div>
 
-        <span>{isAnalyzing ? "Analyzing..." : "Analyze Receiver Chain"}</span>
+        <span>{isAnalyzing ? busyLabel : idleLabel}</span>
 
         {/* Shine effect on hover */}
         <motion.div

@@ -17,12 +17,14 @@ function ResultMetric({
   delay,
 }: {
   label: string;
-  value: number;
+  value: number | null | undefined;
   unit: string;
   description: string;
   color: string;
   delay: number;
 }) {
+  const hasValue = value !== null && value !== undefined && Number.isFinite(value);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
@@ -48,13 +50,12 @@ function ResultMetric({
         <motion.div
           className={`text-3xl font-mono font-bold`}
           style={{ color }}
-          key={value}
+          key={hasValue ? value : "na"}
           initial={{ scale: 1.1, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.3 }}
         >
-          {value > 0 ? "+" : ""}
-          {value.toFixed(2)}
+          {hasValue ? `${value > 0 ? "+" : ""}${value.toFixed(2)}` : "N/A"}
         </motion.div>
         <p className="text-xs text-muted-foreground mt-2 opacity-70">
           {description}
@@ -148,7 +149,7 @@ export function ResultsPanel({ results, isAnalyzing }: ResultsPanelProps) {
         </div>
 
         {/* Results grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <ResultMetric
             label="Total Gain"
             value={results.totalGain}
@@ -173,30 +174,30 @@ export function ResultsPanel({ results, isAnalyzing }: ResultsPanelProps) {
             color="oklch(0.65 0.2 290)"
             delay={0.3}
           />
-        </div>
-
-        {/* Performance indicators */}
-        <div className="mt-6 pt-4 border-t border-border/50">
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Dynamic Range Estimate</span>
-            <div className="flex items-center gap-2">
-              <div className="w-32 h-1.5 bg-secondary rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full rounded-full"
-                  style={{
-                    background:
-                      "linear-gradient(90deg, oklch(0.65 0.2 240), oklch(0.55 0.22 290))",
-                  }}
-                  initial={{ width: 0 }}
-                  animate={{ width: "72%" }}
-                  transition={{ duration: 1, delay: 0.8 }}
-                />
-              </div>
-              <span className="font-mono text-muted-foreground">
-                {(results.inputIP3 - results.totalNoiseFigure - 10).toFixed(1)} dB
-              </span>
-            </div>
-          </div>
+          <ResultMetric
+            label="Output IP3"
+            value={results.outputIP3}
+            unit="dBm"
+            description="Output-referred intercept point"
+            color="oklch(0.68 0.16 260)"
+            delay={0.4}
+          />
+          <ResultMetric
+            label="Dynamic Range Estimate"
+            value={results.dynamicRangeEstimate}
+            unit="dB"
+            description="Estimated usable range"
+            color="oklch(0.72 0.14 120)"
+            delay={0.5}
+          />
+          <ResultMetric
+            label="Receiver Sensitivity"
+            value={results.receiverSensitivity}
+            unit="dBm"
+            description="Minimum detectable input level"
+            color="oklch(0.74 0.13 80)"
+            delay={0.6}
+          />
         </div>
       </div>
     </motion.div>

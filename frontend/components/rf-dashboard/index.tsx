@@ -5,6 +5,10 @@ import { motion } from "framer-motion";
 import { RFStageCard } from "./rf-stage-card";
 import { SignalFlowArrow } from "./signal-flow-arrow";
 import { ResultsPanel } from "./results-panel";
+import { StageAnalysisPanel } from "./stage-analysis-panel";
+import { RFSystemVisualization } from "./rf-system-visualization";
+import { SystemStatusPill } from "./system-status-pill";
+import { DashboardNav } from "./dashboard-nav";
 import { AnalyzeButton } from "./analyze-button";
 import {
   rfStages,
@@ -91,27 +95,7 @@ export function RFDashboard() {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <motion.div
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-secondary/50 border border-border/50 mb-4"
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-          >
-            <motion.div
-              className="w-2 h-2 rounded-full bg-emerald-400"
-              animate={{
-                boxShadow: [
-                  "0 0 4px 2px oklch(0.7 0.18 150 / 0.4)",
-                  "0 0 8px 4px oklch(0.7 0.18 150 / 0.6)",
-                  "0 0 4px 2px oklch(0.7 0.18 150 / 0.4)",
-                ],
-              }}
-              transition={{ duration: 2, repeat: Infinity }}
-            />
-            <span className="text-xs font-medium text-muted-foreground">
-              System Online
-            </span>
-          </motion.div>
+          <SystemStatusPill />
 
           <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-3 text-balance">
             <span
@@ -128,6 +112,8 @@ export function RFDashboard() {
             Receiver Chain Simulator
           </p>
         </motion.header>
+
+        <DashboardNav />
 
         {/* Signal Flow Section */}
         <motion.section
@@ -248,6 +234,8 @@ export function RFDashboard() {
         {/* Results and Action Section */}
         <div className="space-y-6">
           <ResultsPanel results={results} isAnalyzing={isAnalyzing} />
+          <StageAnalysisPanel stageAnalysis={results.stageAnalysis} />
+          <RFSystemVisualization stageAnalysis={results.stageAnalysis} />
 
           {/* Action button */}
           <motion.div

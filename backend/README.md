@@ -25,7 +25,13 @@ pip install -r requirements.txt
 Run development server:
 
 ```bash
-uvicorn app.main:app --reload
+.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+PowerShell one-liner (from repository root):
+
+```bash
+cd backend; .venv\Scripts\Activate.ps1; .venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ## Run a Python file directly

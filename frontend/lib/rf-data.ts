@@ -11,9 +11,37 @@ export interface RFStage {
 }
 
 export interface ReceiverChainResults {
-  totalGain: number; // dB
-  totalNoiseFigure: number; // dB
-  inputIP3: number; // dBm
+  totalGain: number | null; // dB
+  totalNoiseFigure: number | null; // dB
+  inputIP3: number | null; // dBm
+  outputIP3: number | null; // dBm
+  dynamicRangeEstimate: number | null; // dB
+  receiverSensitivity: number | null; // dBm
+  stageAnalysis: StageAnalysisItem[];
+  spectrumData: SpectrumDataPoint[];
+  qpskConstellation: QpskConstellationPoint[];
+}
+
+export interface SpectrumDataPoint {
+  frequencyHz: number;
+  magnitude: number;
+}
+
+export interface QpskConstellationPoint {
+  i: number;
+  q: number;
+}
+
+export interface StageAnalysisItem {
+  stage: string;
+  cumulativeGain: number | null; // dB
+  stageNoiseFigure: number | null; // dB
+  stageIP3: number | null; // dBm
+}
+
+export interface WirelessDspResults {
+  spectrumData: SpectrumDataPoint[];
+  qpskConstellation: QpskConstellationPoint[];
 }
 
 const API_BASE_URL =
@@ -56,7 +84,17 @@ export const rfStages: RFStage[] = [
 // Calculate cascaded receiver chain parameters using Friis formula
 export function calculateReceiverChain(stages: RFStage[]): ReceiverChainResults {
   if (stages.length === 0) {
-    return { totalGain: 0, totalNoiseFigure: 0, inputIP3: 0 };
+    return {
+      totalGain: 0,
+      totalNoiseFigure: 0,
+      inputIP3: 0,
+      outputIP3: null,
+      dynamicRangeEstimate: null,
+      receiverSensitivity: null,
+      stageAnalysis: [],
+      spectrumData: [],
+      qpskConstellation: [],
+    };
   }
 
   // Total Gain (simple addition in dB)
@@ -75,6 +113,12 @@ export function calculateReceiverChain(stages: RFStage[]): ReceiverChainResults 
 
   const totalNoiseFigure = 10 * Math.log10(totalNoiseFigureLinear);
 
+  // Receiver sensitivity estimate (dBm): -174 dBm/Hz + 10log10(BW) + NF + required SNR
+  const bandwidthHz = 1_000_000;
+  const requiredSnrDb = 10;
+  const receiverSensitivity =
+    -174 + 10 * Math.log10(bandwidthHz) + totalNoiseFigure + requiredSnrDb;
+
   // Input-referred IP3 calculation (cascaded)
   // 1/IIP3_total = 1/IIP3_1 + G1/IIP3_2 + (G1*G2)/IIP3_3 + ...
   let iip3InverseSum = 1 / Math.pow(10, stages[0].ip3 / 10);
@@ -88,10 +132,29 @@ export function calculateReceiverChain(stages: RFStage[]): ReceiverChainResults 
 
   const inputIP3 = 10 * Math.log10(1 / iip3InverseSum);
 
+  // Stage-by-stage running view for initial UI rendering.
+  let cumulativeGainDb = 0;
+  const stageAnalysis: StageAnalysisItem[] = stages.map((stage) => {
+    cumulativeGainDb += stage.gain;
+    return {
+      stage: stage.shortName,
+      cumulativeGain: Math.round(cumulativeGainDb * 100) / 100,
+      stageNoiseFigure: Math.round(stage.noiseFigure * 100) / 100,
+      stageIP3: Math.round(stage.ip3 * 100) / 100,
+    };
+  });
+
   return {
     totalGain: Math.round(totalGain * 100) / 100,
     totalNoiseFigure: Math.round(totalNoiseFigure * 100) / 100,
     inputIP3: Math.round(inputIP3 * 100) / 100,
+    outputIP3: Math.round((inputIP3 + totalGain) * 100) / 100,
+    dynamicRangeEstimate:
+      Math.round((inputIP3 - totalNoiseFigure - 10) * 100) / 100,
+    receiverSensitivity: Math.round(receiverSensitivity * 100) / 100,
+    stageAnalysis,
+    spectrumData: [],
+    qpskConstellation: [],
   };
 }
 
@@ -151,10 +214,200 @@ export async function analyzeReceiverChain(stages: RFStage[]): Promise<ReceiverC
 
   const data = await response.json();
   const results = data?.results;
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const totalGain = toNumberOrNull(results?.total_gain_dB);
+  const totalNoiseFigure = toNumberOrNull(results?.total_noise_figure_dB);
+  const inputIP3 = toNumberOrNull(results?.input_ip3_dBm);
+  const outputIP3 = toNumberOrNull(results?.output_ip3_dBm);
+  const dynamicRangeEstimate = toNumberOrNull(results?.dynamic_range_estimate_dB);
+  const backendReceiverSensitivity = toNumberOrNull(results?.receiver_sensitivity_dBm);
+  const stageAnalysisRaw = Array.isArray(results?.stage_analysis)
+    ? results.stage_analysis
+    : [];
+  const spectrumDataRaw = Array.isArray(results?.spectrum_data)
+    ? results.spectrum_data
+    : [];
+  const qpskConstellationRaw = Array.isArray(results?.qpsk_constellation)
+    ? results.qpsk_constellation
+    : [];
+
+  const stageAnalysis: StageAnalysisItem[] = stageAnalysisRaw.map((item: unknown) => {
+    const stageItem = item as Record<string, unknown>;
+    return {
+      stage:
+        String(stageItem?.stage ?? stageItem?.name ?? "Unknown Stage") ||
+        "Unknown Stage",
+      cumulativeGain: toNumberOrNull(stageItem?.cumulative_gain_dB),
+      stageNoiseFigure: toNumberOrNull(
+        stageItem?.stage_noise_figure_dB ?? stageItem?.noise_figure_dB
+      ),
+      stageIP3: toNumberOrNull(stageItem?.stage_ip3_dBm ?? stageItem?.ip3_dBm),
+    };
+  });
+
+  const spectrumData: SpectrumDataPoint[] = (spectrumDataRaw as unknown[])
+    .map((item: unknown): SpectrumDataPoint | null => {
+      const point = item as Record<string, unknown>;
+      const frequencyHz = toNumberOrNull(point?.frequency_hz);
+      const magnitude = toNumberOrNull(point?.magnitude);
+
+      if (frequencyHz === null || magnitude === null) {
+        return null;
+      }
+
+      return {
+        frequencyHz,
+        magnitude,
+      };
+    })
+    .filter((point: SpectrumDataPoint | null): point is SpectrumDataPoint => point !== null)
+    .filter((point: SpectrumDataPoint) => point.frequencyHz >= 0)
+    .sort((a: SpectrumDataPoint, b: SpectrumDataPoint) => a.frequencyHz - b.frequencyHz);
+
+  const qpskConstellation: QpskConstellationPoint[] = (qpskConstellationRaw as unknown[])
+    .map((item: unknown): QpskConstellationPoint | null => {
+      const point = item as Record<string, unknown>;
+      const i = toNumberOrNull(point?.i);
+      const q = toNumberOrNull(point?.q);
+
+      if (i === null || q === null) {
+        return null;
+      }
+
+      return {
+        i,
+        q,
+      };
+    })
+    .filter(
+      (point: QpskConstellationPoint | null): point is QpskConstellationPoint =>
+        point !== null
+    );
+
+  // Keep UI resilient if backend temporarily omits this field.
+  const receiverSensitivity =
+    backendReceiverSensitivity ??
+    (totalNoiseFigure !== null
+      ? Math.round((-174 + 10 * Math.log10(1_000_000) + totalNoiseFigure + 10) * 100) /
+        100
+      : null);
 
   return {
-    totalGain: Number(results?.total_gain_dB ?? 0),
-    totalNoiseFigure: Number(results?.total_noise_figure_dB ?? 0),
-    inputIP3: Number(results?.input_ip3_dBm ?? 0),
+    totalGain,
+    totalNoiseFigure,
+    inputIP3,
+    outputIP3,
+    dynamicRangeEstimate,
+    receiverSensitivity,
+    stageAnalysis,
+    spectrumData,
+    qpskConstellation,
+  };
+}
+
+export async function analyzeWirelessDsp(): Promise<WirelessDspResults> {
+  const requestOptions: RequestInit = {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  };
+
+  const baseUrls = [API_BASE_URL, "http://127.0.0.1:8000"].filter(
+    (value, index, self) => self.indexOf(value) === index
+  );
+  const routes = ["/api/wireless-dsp/analyze", "/wireless-dsp/analyze"];
+
+  let response: Response | null = null;
+
+  for (const baseUrl of baseUrls) {
+    for (const route of routes) {
+      response = await fetch(`${baseUrl}${route}`, requestOptions);
+      if (response.ok) {
+        break;
+      }
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    if (response?.ok) {
+      break;
+    }
+  }
+
+  if (!response || !response.ok) {
+    const status = response?.status ?? "unknown";
+    throw new Error(`Backend wireless-dsp analyze failed: ${status}`);
+  }
+
+  const data = await response.json();
+  const results = data?.results;
+
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const spectrumDataRaw = Array.isArray(results?.spectrum_data)
+    ? results.spectrum_data
+    : [];
+  const qpskConstellationRaw = Array.isArray(results?.qpsk_constellation)
+    ? results.qpsk_constellation
+    : [];
+
+  const spectrumData: SpectrumDataPoint[] = (spectrumDataRaw as unknown[])
+    .map((item: unknown): SpectrumDataPoint | null => {
+      const point = item as Record<string, unknown>;
+      const frequencyHz = toNumberOrNull(point?.frequency_hz);
+      const magnitude = toNumberOrNull(point?.magnitude);
+
+      if (frequencyHz === null || magnitude === null) {
+        return null;
+      }
+
+      return {
+        frequencyHz,
+        magnitude,
+      };
+    })
+    .filter((point: SpectrumDataPoint | null): point is SpectrumDataPoint => point !== null)
+    .sort((a: SpectrumDataPoint, b: SpectrumDataPoint) => a.frequencyHz - b.frequencyHz);
+
+  const qpskConstellation: QpskConstellationPoint[] = (qpskConstellationRaw as unknown[])
+    .map((item: unknown): QpskConstellationPoint | null => {
+      const point = item as Record<string, unknown>;
+      const i = toNumberOrNull(point?.i);
+      const q = toNumberOrNull(point?.q);
+
+      if (i === null || q === null) {
+        return null;
+      }
+
+      return {
+        i,
+        q,
+      };
+    })
+    .filter(
+      (point: QpskConstellationPoint | null): point is QpskConstellationPoint =>
+        point !== null
+    );
+
+  return {
+    spectrumData,
+    qpskConstellation,
   };
 }
