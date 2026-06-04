@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 const tabs = [
   { href: "/", label: "RF Systems" },
   { href: "/wireless-dsp", label: "Wireless/DSP" },
+  { href: "/link-budget", label: "Link Budget" },
+  { href: "/coverage", label: "Coverage" },
+  { href: "/ml-signal-intelligence", label: "ML Signal Intelligence" },
 ];
 
 export function DashboardNav() {

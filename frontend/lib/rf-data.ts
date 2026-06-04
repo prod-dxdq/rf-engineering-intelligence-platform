@@ -32,6 +32,11 @@ export interface QpskConstellationPoint {
   q: number;
 }
 
+export interface BerVsSnrPoint {
+  snrDb: number;
+  ber: number;
+}
+
 export interface StageAnalysisItem {
   stage: string;
   cumulativeGain: number | null; // dB
@@ -42,6 +47,72 @@ export interface StageAnalysisItem {
 export interface WirelessDspResults {
   spectrumData: SpectrumDataPoint[];
   qpskConstellation: QpskConstellationPoint[];
+  berVsSnr: BerVsSnrPoint[];
+}
+
+export interface LinkBudgetInput {
+  txPowerDbm: number;
+  txAntennaGainDbi: number;
+  rxAntennaGainDbi: number;
+  frequencyMhz: number;
+  distanceKm: number;
+  receiverSensitivityDbm: number;
+  model: LinkBudgetModel;
+}
+
+export type LinkBudgetModel = "free_space" | "urban" | "suburban";
+
+export interface LinkBudgetResults {
+  freeSpacePathLossDb: number | null;
+  receivedPowerDbm: number | null;
+  linkMarginDb: number | null;
+}
+
+export interface CoverageInput {
+  txPowerDbm: number;
+  txAntennaGainDbi: number;
+  rxAntennaGainDbi: number;
+  frequencyMhz: number;
+  receiverSensitivityDbm: number;
+  model: LinkBudgetModel;
+}
+
+export interface CoveragePoint {
+  distanceKm: number;
+  receivedPowerDbm: number;
+  linkMarginDb: number;
+  isCovered: boolean;
+  signalQuality: "Good" | "Fair" | "Poor" | "Unknown";
+}
+
+export interface CoverageComparisonPoint {
+  distance_km: number;
+  free_space: number;
+  urban: number;
+  suburban: number;
+}
+
+export interface CoverageResults {
+  coveragePoints: CoveragePoint[];
+  coverageRadiusKm: number | null;
+  comparisonData: CoverageComparisonPoint[];
+}
+
+export interface MlSignalIntelligenceInput {
+  txPowerDbm: number;
+  txAntennaGainDbi: number;
+  rxAntennaGainDbi: number;
+  frequencyMhz: number;
+  distanceKm: number;
+  receiverSensitivityDbm: number;
+  model: LinkBudgetModel;
+}
+
+export interface MlSignalIntelligenceResult {
+  receivedPowerDbm: number | null;
+  linkMarginDb: number | null;
+  predictedSignalQuality: "Good" | "Fair" | "Poor" | "Unknown";
+  evaluatedDistanceKm: number;
 }
 
 const API_BASE_URL =
@@ -367,6 +438,7 @@ export async function analyzeWirelessDsp(): Promise<WirelessDspResults> {
   const qpskConstellationRaw = Array.isArray(results?.qpsk_constellation)
     ? results.qpsk_constellation
     : [];
+  const berVsSnrRaw = Array.isArray(data?.ber_vs_snr) ? data.ber_vs_snr : [];
 
   const spectrumData: SpectrumDataPoint[] = (spectrumDataRaw as unknown[])
     .map((item: unknown): SpectrumDataPoint | null => {
@@ -406,8 +478,337 @@ export async function analyzeWirelessDsp(): Promise<WirelessDspResults> {
         point !== null
     );
 
+  const berVsSnr: BerVsSnrPoint[] = (berVsSnrRaw as unknown[])
+    .map((item: unknown): BerVsSnrPoint | null => {
+      const point = item as Record<string, unknown>;
+      const snrDb = toNumberOrNull(point?.snr_db);
+      const ber = toNumberOrNull(point?.ber);
+
+      if (snrDb === null || ber === null) {
+        return null;
+      }
+
+      return {
+        snrDb,
+        ber,
+      };
+    })
+    .filter((point: BerVsSnrPoint | null): point is BerVsSnrPoint => point !== null)
+    .sort((a: BerVsSnrPoint, b: BerVsSnrPoint) => a.snrDb - b.snrDb);
+
   return {
     spectrumData,
     qpskConstellation,
+    berVsSnr,
+  };
+}
+
+export async function analyzeLinkBudget(
+  input: LinkBudgetInput
+): Promise<LinkBudgetResults> {
+  const baseUrls = [API_BASE_URL, "http://127.0.0.1:8000"].filter(
+    (value, index, self) => self.indexOf(value) === index
+  );
+  const routes = ["/api/link-budget/analyze", "/link-budget/analyze"];
+
+  let response: Response | null = null;
+
+  for (const baseUrl of baseUrls) {
+    const requestUrl = buildLinkBudgetAnalyzeUrl(input, baseUrl);
+    response = await fetchLinkBudgetByUrl(requestUrl);
+
+    if (response.ok) {
+      break;
+    }
+
+    if (response.status !== 404) {
+      break;
+    }
+
+    for (const route of routes) {
+      if (route === "/link-budget/analyze") {
+        continue;
+      }
+
+      const fallbackUrl = buildLinkBudgetAnalyzeUrl(input, baseUrl, route);
+      response = await fetchLinkBudgetByUrl(fallbackUrl);
+
+      if (response.ok) {
+        break;
+      }
+
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    if (response?.ok) {
+      break;
+    }
+  }
+
+  if (!response || !response.ok) {
+    const status = response?.status ?? "unknown";
+    throw new Error(`Backend link-budget analyze failed: ${status}`);
+  }
+
+  return parseLinkBudgetResults(await response.json());
+}
+
+export function buildLinkBudgetAnalyzeUrl(
+  input: LinkBudgetInput,
+  baseUrl = API_BASE_URL,
+  route = "/link-budget/analyze"
+): string {
+  const query = new URLSearchParams({
+    tx_power_dbm: String(input.txPowerDbm),
+    tx_antenna_gain_dbi: String(input.txAntennaGainDbi),
+    rx_antenna_gain_dbi: String(input.rxAntennaGainDbi),
+    frequency_mhz: String(input.frequencyMhz),
+    distance_km: String(input.distanceKm),
+    receiver_sensitivity_dbm: String(input.receiverSensitivityDbm),
+    model: input.model,
+  });
+
+  return `${baseUrl}${route}?${query.toString()}`;
+}
+
+export async function fetchLinkBudgetByUrl(
+  requestUrl: string
+): Promise<Response> {
+  return fetch(requestUrl, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export function parseLinkBudgetResults(data: unknown): LinkBudgetResults {
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const payload = data as Record<string, unknown>;
+
+  return {
+    freeSpacePathLossDb: toNumberOrNull(payload?.free_space_path_loss_db),
+    receivedPowerDbm: toNumberOrNull(payload?.received_power_dbm),
+    linkMarginDb: toNumberOrNull(payload?.link_margin_db),
+  };
+}
+
+export async function analyzeCoverage(input: CoverageInput): Promise<CoverageResults> {
+  const baseUrls = [API_BASE_URL, "http://127.0.0.1:8000"].filter(
+    (value, index, self) => self.indexOf(value) === index
+  );
+  const routes = ["/api/coverage/analyze", "/coverage/analyze"];
+
+  let response: Response | null = null;
+
+  for (const baseUrl of baseUrls) {
+    const requestUrl = buildCoverageAnalyzeUrl(input, baseUrl);
+    response = await fetchCoverageByUrl(requestUrl);
+
+    if (response.ok) {
+      break;
+    }
+
+    if (response.status !== 404) {
+      break;
+    }
+
+    for (const route of routes) {
+      if (route === "/coverage/analyze") {
+        continue;
+      }
+
+      const fallbackUrl = buildCoverageAnalyzeUrl(input, baseUrl, route);
+      response = await fetchCoverageByUrl(fallbackUrl);
+
+      if (response.ok) {
+        break;
+      }
+
+      if (response.status !== 404) {
+        break;
+      }
+    }
+
+    if (response?.ok) {
+      break;
+    }
+  }
+
+  if (!response || !response.ok) {
+    const status = response?.status ?? "unknown";
+    throw new Error(`Backend coverage analyze failed: ${status}`);
+  }
+
+  return parseCoverageResults(await response.json());
+}
+
+export function buildCoverageAnalyzeUrl(
+  input: CoverageInput,
+  baseUrl = API_BASE_URL,
+  route = "/coverage/analyze"
+): string {
+  const query = new URLSearchParams({
+    tx_power_dbm: String(input.txPowerDbm),
+    tx_antenna_gain_dbi: String(input.txAntennaGainDbi),
+    rx_antenna_gain_dbi: String(input.rxAntennaGainDbi),
+    frequency_mhz: String(input.frequencyMhz),
+    receiver_sensitivity_dbm: String(input.receiverSensitivityDbm),
+    model: input.model,
+  });
+
+  return `${baseUrl}${route}?${query.toString()}`;
+}
+
+export async function fetchCoverageByUrl(requestUrl: string): Promise<Response> {
+  return fetch(requestUrl, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+export function parseCoverageResults(data: unknown): CoverageResults {
+  const toNumberOrNull = (value: unknown): number | null => {
+    if (value === null || value === undefined) {
+      return null;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const toSignalQuality = (value: unknown): "Good" | "Fair" | "Poor" | "Unknown" => {
+    const normalized = String(value ?? "").trim().toLowerCase();
+    if (normalized === "good") {
+      return "Good";
+    }
+    if (normalized === "fair") {
+      return "Fair";
+    }
+    if (normalized === "poor") {
+      return "Poor";
+    }
+    return "Unknown";
+  };
+
+  const payload = (data as Record<string, unknown>) ?? {};
+
+  const rawPoints = Array.isArray(data)
+    ? data
+    : Array.isArray(payload?.coverage_data)
+      ? (payload.coverage_data as unknown[])
+      : [];
+
+  const coveragePoints = rawPoints
+    .map((item: unknown): CoveragePoint | null => {
+      const point = item as Record<string, unknown>;
+      const distanceKm = toNumberOrNull(point?.distance_km);
+      const receivedPowerDbm = toNumberOrNull(point?.received_power_dbm);
+      const linkMarginDb = toNumberOrNull(point?.link_margin_db);
+
+      if (distanceKm === null || receivedPowerDbm === null || linkMarginDb === null) {
+        return null;
+      }
+
+      return {
+        distanceKm,
+        receivedPowerDbm,
+        linkMarginDb,
+        isCovered: Boolean(point?.is_covered),
+        signalQuality: toSignalQuality(point?.signal_quality),
+      };
+    })
+    .filter((point: CoveragePoint | null): point is CoveragePoint => point !== null)
+    .sort((a: CoveragePoint, b: CoveragePoint) => a.distanceKm - b.distanceKm);
+
+  const coverageRadiusKm = toNumberOrNull(payload?.farthest_covered_distance_km);
+  const rawComparisonData = Array.isArray(payload?.comparison_data)
+    ? (payload.comparison_data as unknown[])
+    : [];
+
+  const comparisonData = rawComparisonData
+    .map((item: unknown): CoverageComparisonPoint | null => {
+      const row = item as Record<string, unknown>;
+      const distanceKm = toNumberOrNull(row?.distance_km);
+      const freeSpace = toNumberOrNull(row?.free_space);
+      const urban = toNumberOrNull(row?.urban ?? row?.two_ray);
+      const suburban = toNumberOrNull(row?.suburban ?? row?.log_distance);
+
+      if (
+        distanceKm === null ||
+        freeSpace === null ||
+        urban === null ||
+        suburban === null
+      ) {
+        return null;
+      }
+
+      return {
+        distance_km: distanceKm,
+        free_space: freeSpace,
+        urban,
+        suburban,
+      };
+    })
+    .filter(
+      (point: CoverageComparisonPoint | null): point is CoverageComparisonPoint => point !== null
+    )
+    .sort((a: CoverageComparisonPoint, b: CoverageComparisonPoint) => a.distance_km - b.distance_km);
+
+  return {
+    coveragePoints,
+    coverageRadiusKm,
+    comparisonData,
+  };
+}
+
+export async function analyzeMlSignalIntelligence(
+  input: MlSignalIntelligenceInput
+): Promise<MlSignalIntelligenceResult> {
+  const evaluatedDistanceKm = Math.min(20, Math.max(1, Math.round(input.distanceKm)));
+
+  const coveragePromise = analyzeCoverage({
+    txPowerDbm: input.txPowerDbm,
+    txAntennaGainDbi: input.txAntennaGainDbi,
+    rxAntennaGainDbi: input.rxAntennaGainDbi,
+    frequencyMhz: input.frequencyMhz,
+    receiverSensitivityDbm: input.receiverSensitivityDbm,
+    model: input.model,
+  });
+
+  const timeoutMs = 12000;
+  const timeoutPromise = new Promise<CoverageResults>((_, reject) => {
+    setTimeout(() => reject(new Error("Backend coverage analyze timed out")), timeoutMs);
+  });
+
+  const coverageResults = await Promise.race([coveragePromise, timeoutPromise]);
+
+  const exactPoint = coverageResults.coveragePoints.find(
+    (point) => point.distanceKm === evaluatedDistanceKm
+  );
+
+  const fallbackPoint =
+    coverageResults.coveragePoints.length > 0
+      ? coverageResults.coveragePoints[coverageResults.coveragePoints.length - 1]
+      : null;
+
+  const selectedPoint = exactPoint ?? fallbackPoint;
+
+  return {
+    receivedPowerDbm: selectedPoint?.receivedPowerDbm ?? null,
+    linkMarginDb: selectedPoint?.linkMarginDb ?? null,
+    predictedSignalQuality: selectedPoint?.signalQuality ?? "Unknown",
+    evaluatedDistanceKm,
   };
 }

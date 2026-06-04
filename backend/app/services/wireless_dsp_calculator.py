@@ -1,5 +1,5 @@
 import numpy as np
-
+import math
 
 def generate_fft_spectrum():
     # create sampling frequency variable named sample_rate
@@ -94,3 +94,36 @@ def analyze_wireless_dsp():
         "spectrum_data": generate_fft_spectrum(),
         "qpsk_constellation": generate_qpsk_constellation(),
     }
+
+def simulate_ber_vs_snr():
+
+    # create empty list named ber_data
+    ber_data = []
+
+    # create list named snr_values_db
+    # start at 0 dB
+    # end at 20 dB
+    # step by 2 dB
+    snr_values_db = list(range(0, 21, 2))
+
+    # loop through each SNR value using variable snr_db
+    for snr_db in snr_values_db:
+        # convert SNR from dB to linear
+        snr_linear = 10 ** (snr_db / 10)
+
+        # calculate BER
+        ber = 0.5 * math.erfc(math.sqrt(snr_linear))
+
+        # create dictionary named ber_point
+        ber_point = {
+            # store snr_db
+            "snr_db": snr_db,
+            # store ber
+            "ber": ber,
+        }
+
+        # append ber_point to ber_data
+        ber_data.append(ber_point)
+
+    # return ber_data
+    return ber_data

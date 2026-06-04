@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.cascade_routes import router as cascade_router
 from app.routes.wireless_dsp_routes import router as wireless_dsp_router
+from app.routes.link_budget_routes import router as link_budget_router
+from app.routes.coverage_routes import router as coverage_router
 
 app = FastAPI(
     title="RF Engineering Intelligence Platform"
@@ -30,6 +32,17 @@ app.include_router(
     tags=["Wireless DSP Analysis"]
 )
 
+app.include_router(
+    link_budget_router,
+    prefix="/link-budget",
+    tags=["Link Budget Analysis"]
+)
+
+app.include_router(
+    coverage_router,
+    prefix="/coverage",
+    tags=["Coverage Analysis"]
+)
 
 @app.get("/")
 def root():

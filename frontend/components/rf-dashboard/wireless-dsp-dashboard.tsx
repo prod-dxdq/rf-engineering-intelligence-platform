@@ -3,12 +3,14 @@
 import { useCallback, useState } from "react";
 import { motion } from "framer-motion";
 import { AnalyzeButton } from "./analyze-button";
+import { BerVsSnrAnalysis } from "./ber-vs-snr-analysis";
 import { DashboardNav } from "./dashboard-nav";
 import { FFTSpectrumAnalysis } from "./fft-spectrum-analysis";
 import { QPSKConstellationAnalysis } from "./qpsk-constellation-analysis";
 import { SystemStatusPill } from "./system-status-pill";
 import {
   analyzeWirelessDsp,
+  type BerVsSnrPoint,
   type SpectrumDataPoint,
   type QpskConstellationPoint,
 } from "@/lib/rf-data";
@@ -16,6 +18,7 @@ import {
 export function WirelessDSPDashboard() {
   const [spectrumData, setSpectrumData] = useState<SpectrumDataPoint[]>([]);
   const [qpskConstellation, setQpskConstellation] = useState<QpskConstellationPoint[]>([]);
+  const [berVsSnr, setBerVsSnr] = useState<BerVsSnrPoint[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const handleAnalyze = useCallback(async () => {
@@ -25,6 +28,7 @@ export function WirelessDSPDashboard() {
       const results = await analyzeWirelessDsp();
       setSpectrumData(results.spectrumData);
       setQpskConstellation(results.qpskConstellation);
+      setBerVsSnr(results.berVsSnr);
     } finally {
       setIsAnalyzing(false);
     }
@@ -98,6 +102,10 @@ export function WirelessDSPDashboard() {
           />
           <QPSKConstellationAnalysis
             qpskConstellation={qpskConstellation}
+            actionLabel="Analyze Wireless / DSP"
+          />
+          <BerVsSnrAnalysis
+            berVsSnr={berVsSnr}
             actionLabel="Analyze Wireless / DSP"
           />
 
